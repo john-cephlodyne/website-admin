@@ -1,0 +1,54 @@
+# node builder image
+ARG NODE_IMAGE
+ARG GO_IMAGE
+
+ARG DEPS=svelte5
+
+FROM ${NODE_IMAGE} AS frontend-builder
+ARG DEPS
+WORKDIR /app
+# Copy the workspace config, lockfile, and ALL package definitions
+# from the base image's /deps directory into our current directory.
+RUN cp -a /deps/. /app/
+# Install dependencies using the pre-warmed cache.
+RUN pnpm install --offline --frozen-lockfile
+# Copy the application SOURCE CODE the local machine.
+COPY ./frontend ./node-deps/${DEPS}
+# Fail the build if any vulnerability (low, moderate, high, or critical) is found.
+RUN pnpm audit --audit-level=low
+# Run the build from inside the project directory for cleaner logs.
+RUN cd /app/node-deps/${DEPS} && pnpm build
+
+# go builder image
+FROM ${GO_IMAGE} AS server-builder
+ARG LOCAL_DEPLOY=false
+ARG LOG_VALUES=false
+WORKDIR /go-server
+COPY cmd/server ./cmd/server
+COPY internal/ ./internal/ 
+COPY go.mod .
+
+RUN go install golang.org/x/vuln/cmd/govulncheck@latest
+RUN govulncheck ./...
+RUN if [ "$LOCAL_DEPLOY" = "true" ] ; then \
+  go build -ldflags="-X 'github.com/MayoNeurologyAI/go-common-utils/envvar.RunningInCloud=false' \
+  -X 'github.com/MayoNeurologyAI/go-common-utils/envvar.AllowLogValues=true'" \
+  -o ./server ./cmd/server/main.go; \
+  elif [ "$LOG_VALUES" = "true" ] ; then \
+  go build -ldflags="-X 'github.com/MayoNeurologyAI/go-common-utils/envvar.AllowLogValues=true'" \
+  -o ./server ./cmd/server/main.go; \
+  else \
+  go build -o ./server ./cmd/server/main.go; \
+  fi
+
+# final image
+FROM scratch AS final
+ARG DEPS
+WORKDIR /app
+# Copy CA certificates from the Go builder stage
+COPY --from=server-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# Copy built artifacts
+COPY --from=frontend-builder /app/node-deps/${DEPS}/dist ./frontend/dist
+COPY --from=server-builder /go-server/server ./server
+CMD [ "./server" ]
+
