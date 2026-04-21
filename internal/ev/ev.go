@@ -3,39 +3,32 @@ package ev
 import (
 	"fmt"
 	"os"
-	"sync"
+	"strings"
 )
 
-var runningInCloud = true
+var cloudFlag = "true"
 
-// Use a struct to hold the cache and its mutex together.
-var envCache = struct {
-	mu    sync.Mutex
-	items map[string]string
-}{
-	items: make(map[string]string),
-}
-
-// Get retrieves an environment variable. It returns an error if the variable is not set.
-func Get(varName string) (string, error) {
-	envCache.mu.Lock()
-	defer envCache.mu.Unlock()
-
-	value, ok := envCache.items[varName]
-	if ok {
-		return value, nil // Found in cache
-	}
-
-	value = os.Getenv(varName)
+// Get retrieves a standard environment variable.
+func Get(name string) (string, error) {
+	value := os.Getenv(name)
 	if value == "" {
-		return "", fmt.Errorf("environment variable %q is not set", varName)
+		return "", fmt.Errorf("environment variable %q is not set", name)
 	}
-
-	envCache.items[varName] = value
 	return value, nil
 }
 
-// IsRunningInCloud returns the value of the compile-time flag.
+// GetSecret retrieves a secret strictly from the provided absolute file path.
+func GetSecret(filePath string) (string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("secret file not found or unreadable at %q: %w", filePath, err)
+	}
+
+	// Still keep this! Trailing newlines will ruin your day.
+	return strings.TrimSpace(string(data)), nil
+}
+
+// IsRunningInCloud returns true if the compile-time flag is set to "true".
 func IsRunningInCloud() bool {
-	return runningInCloud
+	return cloudFlag == "true"
 }
