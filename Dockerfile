@@ -1,8 +1,10 @@
+# syntax=docker/dockerfile:1.4
+
 # node builder image
 ARG NODE_IMAGE
 ARG GO_IMAGE
 
-ARG DEPS=svelte5
+ARG DEPS=svelte5-threejs
 
 FROM ${NODE_IMAGE} AS frontend-builder
 ARG DEPS
@@ -30,15 +32,25 @@ COPY go.mod .
 
 RUN go install golang.org/x/vuln/cmd/govulncheck@latest
 RUN govulncheck ./...
+
 RUN if [ "$LOCAL_DEPLOY" = "true" ] ; then \
-  go build -ldflags="-X 'github.com/MayoNeurologyAI/go-common-utils/envvar.RunningInCloud=false' \
-  -X 'github.com/MayoNeurologyAI/go-common-utils/envvar.AllowLogValues=true'" \
+  CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s \
+  -X 'website/internal/ev.cloudFlag=false' \
+  -X 'website/internal/jot.sensitiveBuild=false' \
+  -X 'website/internal/jot.logFormat=text'" \
   -o ./server ./cmd/server/main.go; \
   elif [ "$LOG_VALUES" = "true" ] ; then \
-  go build -ldflags="-X 'github.com/MayoNeurologyAI/go-common-utils/envvar.AllowLogValues=true'" \
+  CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s \
+  -X 'website/internal/ev.cloudFlag=true' \:pre-warmed
+-X 'website/internal/jot.sensitiveBuild=false' \
+  -X 'website/internal/jot.logFormat=gcp'" \
   -o ./server ./cmd/server/main.go; \
   else \
-  go build -o ./server ./cmd/server/main.go; \
+  CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s \
+  -X 'website/internal/ev.cloudFlag=true' \
+  -X 'website/internal/jot.sensitiveBuild=true' \
+  -X 'website/internal/jot.logFormat=gcp'" \
+  -o ./server ./cmd/server/main.go; \
   fi
 
 # final image
@@ -50,5 +62,7 @@ COPY --from=server-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Copy built artifacts
 COPY --from=frontend-builder /app/node-deps/${DEPS}/dist ./frontend/dist
 COPY --from=server-builder /go-server/server ./server
-CMD [ "./server" ]
+# Run as an unprivileged, completely anonymous user instead of root.
+USER 10001:10001
 
+CMD [ "./server" ]
