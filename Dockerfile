@@ -27,7 +27,8 @@ ARG LOCAL_DEPLOY=false
 ARG LOG_VALUES=false
 WORKDIR /go-server
 COPY cmd/server ./cmd/server
-COPY internal/ ./internal/ 
+COPY internal/ ./internal/
+COPY vendor/ ./vendor/
 COPY go.mod .
 
 RUN go install golang.org/x/vuln/cmd/govulncheck@latest
