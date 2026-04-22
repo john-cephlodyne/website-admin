@@ -41,8 +41,8 @@ RUN if [ "$LOCAL_DEPLOY" = "true" ] ; then \
   -o ./server ./cmd/server/main.go; \
   elif [ "$LOG_VALUES" = "true" ] ; then \
   CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s \
-  -X 'website/internal/ev.cloudFlag=true' \:pre-warmed
--X 'website/internal/jot.sensitiveBuild=false' \
+  -X 'website/internal/ev.cloudFlag=true' \
+  -X 'website/internal/jot.sensitiveBuild=false' \
   -X 'website/internal/jot.logFormat=gcp'" \
   -o ./server ./cmd/server/main.go; \
   else \
