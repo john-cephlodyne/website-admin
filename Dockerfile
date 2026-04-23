@@ -4,7 +4,7 @@
 ARG NODE_IMAGE
 ARG GO_IMAGE
 
-ARG DEPS=svelte5-threejs
+ARG DEPS=svelte5
 
 FROM ${NODE_IMAGE} AS frontend-builder
 ARG DEPS
