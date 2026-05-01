@@ -3,7 +3,6 @@
 # node builder image
 ARG NODE_IMAGE
 ARG GO_IMAGE
-
 ARG DEPS=svelte5-only
 
 FROM ${NODE_IMAGE} AS frontend-builder
