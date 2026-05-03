@@ -9,11 +9,13 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"website-admin/internal/api"
 	"website-admin/internal/ev"
 	"website-admin/internal/helmet"
 	"website-admin/internal/jot"
 )
 
+// Restored to your exact original version, no inline styles!
 const custom404HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -31,10 +33,7 @@ const custom404HTML = `<!DOCTYPE html>
 </body>
 </html>`
 
-// cleanQueryMiddleware creates a middleware that strips any query parameters
-// not explicitly provided in the allowedKeys list, issuing a 301 redirect if necessary.
 func cleanQueryMiddleware(allowedKeys ...string) func(http.Handler) http.Handler {
-	// Create a map of allowed keys for O(1) lookups
 	allowed := make(map[string]bool)
 	for _, k := range allowedKeys {
 		allowed[k] = true
@@ -42,7 +41,6 @@ func cleanQueryMiddleware(allowedKeys ...string) func(http.Handler) http.Handler
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Fast path: if there are no query parameters, move on immediately
 			if r.URL.RawQuery == "" {
 				next.ServeHTTP(w, r)
 				return
@@ -51,29 +49,22 @@ func cleanQueryMiddleware(allowedKeys ...string) func(http.Handler) http.Handler
 			q := r.URL.Query()
 			needsRedirect := false
 
-			// Loop through all provided parameters
 			for key := range q {
-				// If the key isn't in our inclusion list, delete it
 				if !allowed[key] {
 					q.Del(key)
 					needsRedirect = true
 				}
 			}
 
-			// If we removed anything, issue a redirect to the cleaned up URL
 			if needsRedirect {
 				redirectPath := r.URL.Path
 				cleanQuery := q.Encode()
-
-				// Reattach the query string only if there are still valid params left
 				if cleanQuery != "" {
 					redirectPath += "?" + cleanQuery
 				}
-
 				http.Redirect(w, r, redirectPath, http.StatusMovedPermanently)
 				return
 			}
-
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -88,31 +79,39 @@ func cacheControlMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// FIXED: Now properly handles client-side routing
 func spaHandler(staticPath string, indexPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		path := filepath.Join(staticPath, r.URL.Path)
+		path := filepath.Join(staticPath, filepath.Clean(r.URL.Path))
 
 		info, err := os.Stat(path)
 
-		// If the file does not exist, serve the custom 404 HTML page.
 		if os.IsNotExist(err) {
+			// If the path has no extension (e.g., "/dashboard", "/users"),
+			// it is a Svelte route. Serve index.html and let Svelte handle it!
+			if filepath.Ext(path) == "" {
+				http.ServeFile(w, r, filepath.Join(staticPath, indexPath))
+				return
+			}
+
+			// If it HAS an extension (e.g., "/logo.png", "/server.css"),
+			// it's a missing file. Serve the custom 404 HTML.
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(custom404HTML))
 			return
-		} else if jot.Log(err, "failed to stat file") { // <-- Automatically logs if err exists!
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		} else if err != nil {
+			if jot.Log(err, "failed to stat file") {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 
-		// If the path is a directory (like the root path "/"),
-		// serve the index.html fallback.
 		if info.IsDir() {
 			http.ServeFile(w, r, filepath.Join(staticPath, indexPath))
 			return
 		}
 
-		// The file exists and is not a directory. Serve it directly.
 		http.ServeFile(w, r, path)
 	}
 }
@@ -121,24 +120,22 @@ func main() {
 	port, err := ev.Get("PORT")
 	jot.Fatal(err, "port not set")
 
+	mux := http.NewServeMux()
+
+	// Register the Connect-RPC API Routes FIRST
+	api.Register(mux)
+
 	staticDir := "frontend/dist"
 	spa := spaHandler(staticDir, "index.html")
-	mux := http.NewServeMux()
 	mux.Handle("/", spa)
 
-	// Create the query cleaner middleware with your inclusion list.
-	// Currently empty, so it strips ALL query parameters.
 	queryCleaner := cleanQueryMiddleware()
-
-	// Wrap the mux: Cache -> Query Cleaner -> Helmet
 	secureApp := helmet.New("/assets/")
 	app := secureApp(queryCleaner(mux))
 
-	// --- h2c Implementation ---
 	h2s := &http2.Server{}
 	server := &http.Server{
-		Addr: ":" + port,
-		// Wrap the fully constructed middleware chain 'app' in h2c
+		Addr:    ":" + port,
 		Handler: h2c.NewHandler(app, h2s),
 	}
 

@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # -----------------------------------------------------
+  # 1. The Internal Admin Server
+  # -----------------------------------------------------
+  admin:
+    build:
+      # Look in the current directory for the Dockerfile
+      context: . 
+      dockerfile: Dockerfile
+      args:
+        - NODE_IMAGE=base-repo-node
+        - GO_IMAGE=base-repo-go
+    container_name: website-admin
+    # Satisfy your ev.Get("PORT") requirement
+    environment:
+      - PORT=8081
+    ports:
+      - "8081:8081"
+
+  # -----------------------------------------------------
+  # 2. The External Public Server
+  # -----------------------------------------------------
+  website:
+    build:
+      # Look in the neighboring directory for the Dockerfile
+      context: ../website 
+      dockerfile: Dockerfile
+      args:
+        - NODE_IMAGE=base-repo-node
+        - GO_IMAGE=base-repo-go
+    container_name: website-external
+    environment:
+      - PORT=8080
+      # Use Docker's internal DNS so the website can call the admin server
+      - ADMIN_URL=http://admin:8081 
+    ports:
+      - "8080:8080"
+    # Ensure the admin server starts up first
+    depends_on:
+      - admin

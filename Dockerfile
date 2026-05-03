@@ -27,6 +27,7 @@ ARG LOG_VALUES=false
 WORKDIR /go-server
 COPY cmd/server ./cmd/server
 COPY internal/ ./internal/
+COPY gen/ gen/
 COPY vendor/ ./vendor/
 COPY go.mod .
 
